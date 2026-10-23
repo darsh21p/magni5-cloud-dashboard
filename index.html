@@ -104,6 +104,20 @@
   .info-row:last-child{border-bottom:none}
   .info-row span:first-child{color:var(--muted)}
 
+  /* Login */
+  #login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .login-box{width:340px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px}
+  .login-box h1{margin-bottom:4px}
+  .login-box input{width:100%;padding:9px 12px;margin-top:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px}
+  .login-box button{width:100%;margin-top:18px;padding:10px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+  .login-err{color:var(--red);font-size:12px;margin-top:10px;min-height:16px}
+  #app{display:none}
+  .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dim);margin-right:6px;vertical-align:middle}
+  .live-dot.on{background:var(--green)}
+  .signout{margin-left:14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer}
+  @keyframes flash{from{background:rgba(91,138,245,.25)}to{background:transparent}}
+  tr.flash{animation:flash 1.2s ease-out}
+
   /* Loading */
   .loading{padding:40px;text-align:center;color:var(--muted)}
   .back-link{font-size:12px;color:var(--accent);display:block;margin-bottom:8px}
@@ -111,11 +125,25 @@
 </head>
 <body>
 
+<div id="login-screen">
+  <form class="login-box" onsubmit="doLogin(event)">
+    <h1>magni5 Cloud</h1>
+    <p class="subtitle" style="margin-bottom:4px">Sign in to view your devices</p>
+    <input id="login-email" type="email" placeholder="Email" autocomplete="username" required/>
+    <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required/>
+    <button type="submit" id="login-btn">Sign in</button>
+    <div class="login-err" id="login-err"></div>
+  </form>
+</div>
+
+<div id="app">
 <nav>
   <span class="brand">magni5 Cloud</span>
   <button class="nav-btn active" onclick="showPage('obs')">Observability</button>
   <button class="nav-btn"        onclick="showPage('dash')">Dashboard</button>
-  <span class="nav-right" id="nav-count"></span>
+  <span class="nav-right"><span class="live-dot" id="live-dot"></span><span id="nav-count"></span>
+    <span id="nav-user" style="margin-left:14px"></span>
+    <button class="signout" onclick="doLogout()">Sign out</button></span>
 </nav>
 
 <!-- ── PAGE 1: OBSERVABILITY ────────────────────────────────────────────── -->
@@ -182,6 +210,7 @@
 <div id="page-detail" class="page">
   <div id="detail-content" class="loading">Select a device from Observability.</div>
 </div>
+</div><!-- /app -->
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -235,6 +264,7 @@ function barRow(label, v) {
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 function showPage(id) {
+  if (id !== "detail") _currentDetail = null;
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
   document.getElementById("page-"+id).classList.add("active");
@@ -288,7 +318,7 @@ function renderObs() {
   tbody.innerHTML = rows.map(d => {
     const live = isOnline(d);
     const loc  = [d.location_city, d.location_country].filter(Boolean).join(", ") || "—";
-    return `<tr onclick="showDetail('${d.device_id}')">
+    return `<tr data-id="${d.device_id}" onclick="showDetail('${d.device_id}')">
       <td>${badgeHtml(d.m5_score)}</td>
       <td style="font-weight:600">${d.hostname||"—"}</td>
       <td>${numCell(d.rs_score)}</td>
@@ -379,9 +409,12 @@ function renderDash() {
 }
 
 // ── DEVICE DETAIL ─────────────────────────────────────────────────────────────
-async function showDetail(id) {
-  showPage("detail");
-  document.getElementById("detail-content").innerHTML = `<div class="loading">Loading device…</div>`;
+async function showDetail(id, silent = false) {
+  _currentDetail = id;
+  if (!silent) {
+    showPage("detail");
+    document.getElementById("detail-content").innerHTML = `<div class="loading">Loading device…</div>`;
+  }
 
   const [{ data: dev }, { data: hist }] = await Promise.all([
     sb.from("devices").select("*").eq("device_id", id).single(),
@@ -474,9 +507,71 @@ async function showDetail(id) {
   `;
 }
 
+// ── Realtime: Supabase pushes every device UPSERT to the browser ──────────────
+let _channel = null, _currentDetail = null, _timers = [];
+
+function applyChange(row) {
+  const i = ALL_DEVICES.findIndex(d => d.device_id === row.device_id);
+  if (i >= 0) ALL_DEVICES[i] = row; else ALL_DEVICES.push(row);
+  const online = ALL_DEVICES.filter(isOnline).length;
+  document.getElementById("nav-count").textContent = `${ALL_DEVICES.length} devices · ${online} online`;
+  renderObs();
+  renderDash();
+  const tr = document.querySelector(`tr[data-id="${row.device_id}"]`);
+  if (tr) tr.classList.add("flash");
+  if (_currentDetail === row.device_id) showDetail(row.device_id, true);
+}
+
+function startRealtime() {
+  _channel = sb.channel("devices-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "devices" },
+        p => { if (p.new && p.new.device_id) applyChange(p.new); })
+    .subscribe(status => {
+      document.getElementById("live-dot").classList.toggle("on", status === "SUBSCRIBED");
+    });
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  btn.disabled = true; btn.textContent = "Signing in…"; err.textContent = "";
+  const { error } = await sb.auth.signInWithPassword({
+    email:    document.getElementById("login-email").value.trim(),
+    password: document.getElementById("login-pass").value,
+  });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) err.textContent = error.message;
+}
+
+async function doLogout() { await sb.auth.signOut(); }
+
+function enterApp(session) {
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  document.getElementById("nav-user").textContent = session.user.email;
+  loadAll();
+  startRealtime();
+  _timers.push(setInterval(loadAll, 60000));                     // safety resync
+  _timers.push(setInterval(() => { renderObs(); }, 15000));      // tick "last seen" + online state
+}
+
+function leaveApp() {
+  _timers.forEach(clearInterval); _timers = [];
+  if (_channel) { sb.removeChannel(_channel); _channel = null; }
+  ALL_DEVICES = [];
+  document.getElementById("app").style.display = "none";
+  document.getElementById("login-screen").style.display = "flex";
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
-loadAll();
-setInterval(loadAll, 30000);
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT" || !session) leaveApp();
+  else if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+    if (document.getElementById("app").style.display !== "block") enterApp(session);
+  }
+});
 </script>
 </body>
 </html>
