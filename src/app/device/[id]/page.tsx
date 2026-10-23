@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { supabase, Device, DeviceHistory, isOnline, scoreColor, relativeTime } from "@/lib/supabase";
+import { supabase, Device, DeviceHistory, isOnline, scoreColor, relativeTime } from "../../../lib/supabase";
 import { use } from "react";
 
 // ── Gauge ─────────────────────────────────────────────────────────────────────

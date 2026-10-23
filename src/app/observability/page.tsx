@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { supabase, Device, isOnline, scoreColor, relativeTime } from "@/lib/supabase";
+import { supabase, Device, isOnline, scoreColor, relativeTime } from "../../lib/supabase";
 
 // ── Score badge ───────────────────────────────────────────────────────────────
 function Badge({ v }: { v: number | null }) {

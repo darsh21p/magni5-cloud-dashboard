@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { supabase, Device, isOnline, scoreColor, scoreLabel } from "@/lib/supabase";
+import { supabase, Device, isOnline, scoreColor, scoreLabel } from "../../lib/supabase";
 
 interface LocationStat {
   city:     string;
