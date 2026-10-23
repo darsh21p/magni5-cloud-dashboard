@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>magni5 Cloud Monitor</title>
+<!-- Supabase JS via CDN — no npm, no build step needed -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root {
+    --bg:      #0d0e14; --surface: #161820; --card: #1e2029;
+    --border:  #2c2e3a; --text: #e4e5f0; --muted: #888ba0; --dim: #555768;
+    --accent:  #5b8af5; --green: #4caf7d; --amber: #e0a840; --red: #e05252;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.6;min-height:100vh}
+  a{color:var(--accent);text-decoration:none}
+
+  /* Nav */
+  nav{display:flex;align-items:center;gap:0;padding:0 24px;height:52px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+  .brand{font-weight:700;font-size:15px;margin-right:32px;color:var(--text)}
+  .nav-btn{padding:0 16px;height:100%;display:flex;align-items:center;font-size:13px;color:var(--muted);border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;transition:.15s}
+  .nav-btn:hover,.nav-btn.active{color:var(--text)}
+  .nav-btn.active{border-bottom-color:var(--accent);color:var(--text)}
+  .nav-right{margin-left:auto;font-size:12px;color:var(--muted)}
+
+  /* Pages */
+  .page{display:none;padding:24px;min-height:calc(100vh - 52px)}
+  .page.active{display:block}
+
+  /* Headings */
+  h1{font-size:20px;font-weight:700;margin-bottom:4px}
+  h2{font-size:15px;font-weight:600;margin-bottom:14px}
+  .subtitle{color:var(--muted);font-size:13px;margin-bottom:20px}
+
+  /* Toolbar */
+  .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar input{flex:1;min-width:200px;padding:7px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px}
+  .toolbar input::placeholder{color:var(--muted)}
+  .filter-btn{padding:7px 16px;border-radius:8px;font-size:13px;background:var(--card);border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.15s}
+  .filter-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* Tables */
+  .table-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{padding:9px 14px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;background:var(--card);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
+  thead th:hover{color:var(--text)}
+  tbody tr{border-top:1px solid var(--border);cursor:pointer;transition:.1s}
+  tbody tr:first-child{border-top:none}
+  tbody tr:nth-child(even){background:rgba(255,255,255,.012)}
+  tbody tr:hover{background:rgba(91,138,245,.06)}
+  td{padding:10px 14px;vertical-align:middle}
+
+  /* Badge */
+  .badge{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;font-weight:700;font-size:12px}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:12px;font-size:12px;font-weight:600}
+  .pill-dot{width:6px;height:6px;border-radius:50%}
+  .pill-online{background:rgba(76,175,125,.12);color:var(--green)}
+  .pill-offline{background:rgba(224,82,82,.12);color:var(--red)}
+
+  /* Summary cards */
+  .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+  @media(max-width:700px){.summary-grid{grid-template-columns:1fr 1fr}}
+  .sum-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 24px}
+  .sum-label{font-size:13px;color:var(--muted);margin-bottom:6px}
+  .sum-val{font-size:42px;font-weight:700;line-height:1}
+  .sum-sub{font-size:12px;color:var(--muted);margin-top:4px}
+
+  /* Two-col layout */
+  .two-col{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+  @media(max-width:800px){.two-col{grid-template-columns:1fr}}
+
+  /* Location table card */
+  .loc-table{border:1px solid var(--border);border-radius:10px;overflow:hidden}
+
+  /* Worst card */
+  .worst-card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .worst-row{display:block;padding:12px 16px;border-top:1px solid var(--border);cursor:pointer;color:inherit;transition:.1s}
+  .worst-row:first-child{border-top:none}
+  .worst-row:hover{background:rgba(91,138,245,.06)}
+  .worst-inner{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .worst-name{font-weight:600;margin-bottom:2px}
+  .worst-sub{font-size:11px;color:var(--muted)}
+  .worst-score{text-align:right}
+  .worst-m5{font-size:22px;font-weight:700}
+  .worst-lbl{font-size:11px;color:var(--muted)}
+  .bar-track{height:5px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:2px}
+  .bar-fill{height:100%;border-radius:3px}
+  .bar-row{display:flex;align-items:center;gap:8px;margin-top:3px}
+  .bar-lbl{min-width:18px;font-size:11px;color:var(--muted)}
+  .bar-num{min-width:24px;text-align:right;font-size:11px;font-weight:600}
+
+  /* Detail page */
+  .detail-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;gap:16px;flex-wrap:wrap}
+  .gauge-row{display:flex;justify-content:space-around;gap:16px;flex-wrap:wrap}
+  .gauge{text-align:center}
+  .gauge-circle{width:72px;height:72px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
+  .gauge-label{font-size:12px;color:var(--muted)}
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+  @media(max-width:600px){.detail-grid{grid-template-columns:1fr}}
+  .info-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+  .info-card h2{font-size:14px;margin-bottom:12px}
+  .info-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
+  .info-row:last-child{border-bottom:none}
+  .info-row span:first-child{color:var(--muted)}
+
+  /* Loading */
+  .loading{padding:40px;text-align:center;color:var(--muted)}
+  .back-link{font-size:12px;color:var(--accent);display:block;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="brand">magni5 Cloud</span>
+  <button class="nav-btn active" onclick="showPage('obs')">Observability</button>
+  <button class="nav-btn"        onclick="showPage('dash')">Dashboard</button>
+  <span class="nav-right" id="nav-count"></span>
+</nav>
+
+<!-- ── PAGE 1: OBSERVABILITY ────────────────────────────────────────────── -->
+<div id="page-obs" class="page active">
+  <h1>Observability</h1>
+  <p class="subtitle" id="obs-subtitle">Loading devices…</p>
+  <div class="toolbar">
+    <input id="search-input" placeholder="Search hostname, city, SSID…" oninput="renderObs()"/>
+    <button class="filter-btn active" id="f-all"     onclick="setFilter('all')">All</button>
+    <button class="filter-btn"        id="f-online"  onclick="setFilter('online')">Online</button>
+    <button class="filter-btn"        id="f-offline" onclick="setFilter('offline')">Offline</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="setSort('m5_score')">Score ↕</th>
+          <th onclick="setSort('hostname')">Hostname ↕</th>
+          <th onclick="setSort('rs_score')">RS ↕</th>
+          <th onclick="setSort('rl_score')">RL ↕</th>
+          <th onclick="setSort('sp_score')">SP ↕</th>
+          <th onclick="setSort('app_health_score')">App Health ↕</th>
+          <th>Status</th>
+          <th>Network</th>
+          <th onclick="setSort('location_city')">Location ↕</th>
+          <th onclick="setSort('last_seen')">Last seen ↕</th>
+        </tr>
+      </thead>
+      <tbody id="obs-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── PAGE 2: DASHBOARD ────────────────────────────────────────────────── -->
+<div id="page-dash" class="page">
+  <h1>Dashboard</h1>
+  <p class="subtitle" id="dash-subtitle">Loading…</p>
+  <div class="summary-grid" id="summary-cards"></div>
+  <div class="two-col">
+    <div>
+      <h2>Score by Location</h2>
+      <div class="loc-table">
+        <table>
+          <thead><tr>
+            <th>City</th><th style="text-align:center">Devices</th>
+            <th style="text-align:center">Online</th>
+            <th style="text-align:center">M5</th>
+            <th style="text-align:center">RS</th>
+            <th style="text-align:center">RL</th>
+            <th style="text-align:center">SP</th>
+          </tr></thead>
+          <tbody id="loc-tbody"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h2>Needs Attention</h2>
+      <div class="worst-card" id="worst-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PAGE 3: DEVICE DETAIL ────────────────────────────────────────────── -->
+<div id="page-detail" class="page">
+  <div id="detail-content" class="loading">Select a device from Observability.</div>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://mymooraduqdbnysyykrx.supabase.co";
+const SUPABASE_KEY = "sb_publishable_5auvJ-cAohF3XzlvRcI4ow_9uRFA6lu";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let ALL_DEVICES = [];
+let sortKey = "m5_score", sortAsc = false, filterMode = "all";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function scoreColor(v) {
+  if (v === null || v === undefined) return "var(--dim)";
+  return v >= 80 ? "var(--green)" : v >= 60 ? "var(--amber)" : "var(--red)";
+}
+function scoreLabel(v) {
+  if (v >= 90) return "Excellent"; if (v >= 80) return "Great";
+  if (v >= 70) return "Good"; if (v >= 60) return "Fair";
+  if (v >= 50) return "Poor"; return "Bad";
+}
+function isOnline(d) {
+  return Date.now() - new Date(d.last_seen).getTime() < 10*60*1000;
+}
+function relTime(iso) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s/60)+"m ago";
+  if (s < 86400) return Math.floor(s/3600)+"h ago";
+  return Math.floor(s/86400)+"d ago";
+}
+function avg(arr) {
+  return arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+}
+function numCell(v, bold=false) {
+  if (v===null||v===undefined) return `<span style="color:var(--dim)">—</span>`;
+  return `<span style="color:${scoreColor(v)};${bold?"font-weight:700":"font-weight:600"}">${v}</span>`;
+}
+function badgeHtml(v) {
+  const c = scoreColor(v);
+  return `<span class="badge" style="border:2px solid ${c};background:${c}18;color:${c}">${v??'—'}</span>`;
+}
+function barRow(label, v) {
+  const c = scoreColor(v);
+  return `<div class="bar-row">
+    <span class="bar-lbl">${label}</span>
+    <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${v}%;background:${c}"></div></div>
+    <span class="bar-num" style="color:${c}">${v}</span>
+  </div>`;
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
+  document.getElementById("page-"+id).classList.add("active");
+  const btns = document.querySelectorAll(".nav-btn");
+  const map = {obs:0, dash:1};
+  if (map[id] !== undefined) btns[map[id]].classList.add("active");
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+async function loadAll() {
+  const { data, error } = await sb.from("devices").select("*").order("m5_score", {ascending:false});
+  if (error) { console.error(error); return; }
+  ALL_DEVICES = data || [];
+  const online = ALL_DEVICES.filter(isOnline).length;
+  document.getElementById("nav-count").textContent = `${ALL_DEVICES.length} devices · ${online} online`;
+  renderObs();
+  renderDash();
+}
+
+// ── Sort & filter ─────────────────────────────────────────────────────────────
+function setSort(k) { sortAsc = k===sortKey ? !sortAsc : false; sortKey=k; renderObs(); }
+function setFilter(f) {
+  filterMode = f;
+  document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));
+  document.getElementById("f-"+f).classList.add("active");
+  renderObs();
+}
+
+// ── OBSERVABILITY ─────────────────────────────────────────────────────────────
+function renderObs() {
+  const q = document.getElementById("search-input").value.toLowerCase();
+  let rows = ALL_DEVICES.filter(d => {
+    const live = isOnline(d);
+    if (filterMode==="online" && !live) return false;
+    if (filterMode==="offline" && live) return false;
+    return !q || (d.hostname||"").toLowerCase().includes(q)
+              || (d.location_city||"").toLowerCase().includes(q)
+              || (d.ssid||"").toLowerCase().includes(q);
+  }).sort((a,b) => {
+    const va = a[sortKey]??-1, vb = b[sortKey]??-1;
+    return sortAsc ? (va<vb?-1:va>vb?1:0) : (va<vb?1:va>vb?-1:0);
+  });
+
+  const online = ALL_DEVICES.filter(isOnline).length;
+  const off    = ALL_DEVICES.length - online;
+  document.getElementById("obs-subtitle").textContent =
+    `${ALL_DEVICES.length} total · ${online} online${off>0?" · "+off+" offline":""} · refreshes every 30s`;
+
+  const tbody = document.getElementById("obs-tbody");
+  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="10" class="loading">No devices match</td></tr>`; return; }
+  tbody.innerHTML = rows.map(d => {
+    const live = isOnline(d);
+    const loc  = [d.location_city, d.location_country].filter(Boolean).join(", ") || "—";
+    return `<tr onclick="showDetail('${d.device_id}')">
+      <td>${badgeHtml(d.m5_score)}</td>
+      <td style="font-weight:600">${d.hostname||"—"}</td>
+      <td>${numCell(d.rs_score)}</td>
+      <td>${numCell(d.rl_score)}</td>
+      <td>${numCell(d.sp_score)}</td>
+      <td>${numCell(d.app_health_score)}</td>
+      <td><span class="pill ${live?"pill-online":"pill-offline"}">
+        <span class="pill-dot" style="background:${live?"var(--green)":"var(--red)"}"></span>
+        ${live?"Connected":"Offline"}
+      </span></td>
+      <td style="color:var(--muted)">${d.ssid||"—"}</td>
+      <td style="color:var(--muted)">${loc}</td>
+      <td style="color:var(--muted);white-space:nowrap">${relTime(d.last_seen)}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function renderDash() {
+  const D = ALL_DEVICES;
+  if (!D.length) return;
+  const online  = D.filter(isOnline).length;
+  const allM5   = avg(D.map(d=>d.m5_score));
+  const allRS   = avg(D.map(d=>d.rs_score));
+  const allRL   = avg(D.map(d=>d.rl_score));
+  const allSP   = avg(D.map(d=>d.sp_score));
+
+  document.getElementById("dash-subtitle").textContent =
+    `${D.length} devices · ${online} online · ${D.length-online} offline`;
+
+  document.getElementById("summary-cards").innerHTML = [
+    ["M5",  "Average M5 Score",      allM5],
+    ["RS",  "Responsiveness Avg",    allRS],
+    ["RL",  "Reliability Avg",       allRL],
+    ["SP",  "Speed Avg",             allSP],
+  ].map(([icon,label,val]) => `
+    <div class="sum-card">
+      <div class="sum-label">${label}</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+        <span style="font-size:13px;color:var(--muted)">${icon}</span>
+        <span class="sum-val" style="color:${scoreColor(val)}">${val}</span>
+      </div>
+      <div class="sum-sub">${scoreLabel(val)} · Average Score</div>
+    </div>`).join("");
+
+  // By city
+  const byCity = {};
+  for (const d of D) {
+    const k = d.location_city||"Unknown";
+    if (!byCity[k]) byCity[k]={devs:[],country:d.location_country||""};
+    byCity[k].devs.push(d);
+  }
+  const locs = Object.entries(byCity).map(([city,{devs,country}]) => ({
+    city, country, count:devs.length, online:devs.filter(isOnline).length,
+    m5:avg(devs.map(d=>d.m5_score)), rs:avg(devs.map(d=>d.rs_score)),
+    rl:avg(devs.map(d=>d.rl_score)), sp:avg(devs.map(d=>d.sp_score)),
+  })).sort((a,b)=>b.m5-a.m5);
+
+  document.getElementById("loc-tbody").innerHTML = locs.map((l,i) => `
+    <tr>
+      <td><strong>${l.city}</strong> <span style="color:var(--muted);font-size:11px">${l.country}</span></td>
+      <td style="text-align:center;color:var(--muted)">${l.count}</td>
+      <td style="text-align:center;color:var(--green)">${l.online}</td>
+      <td style="text-align:center">${numCell(l.m5,true)}</td>
+      <td style="text-align:center">${numCell(l.rs)}</td>
+      <td style="text-align:center">${numCell(l.rl)}</td>
+      <td style="text-align:center">${numCell(l.sp)}</td>
+    </tr>`).join("");
+
+  // Worst 5
+  const worst5 = [...D].sort((a,b)=>a.m5_score-b.m5_score).slice(0,5);
+  document.getElementById("worst-list").innerHTML = worst5.map(d => `
+    <a class="worst-row" onclick="showDetail('${d.device_id}');return false" href="#">
+      <div class="worst-inner">
+        <div>
+          <div class="worst-name">${d.hostname||"—"}</div>
+          <div class="worst-sub">${d.location_city||"Unknown"} · ${d.ssid||"—"}</div>
+        </div>
+        <div class="worst-score">
+          <div class="worst-m5" style="color:${scoreColor(d.m5_score)}">${d.m5_score}</div>
+          <div class="worst-lbl">M5</div>
+        </div>
+      </div>
+      ${barRow("RS",d.rs_score)}
+      ${barRow("RL",d.rl_score)}
+      ${barRow("SP",d.sp_score)}
+    </a>`).join("");
+}
+
+// ── DEVICE DETAIL ─────────────────────────────────────────────────────────────
+async function showDetail(id) {
+  showPage("detail");
+  document.getElementById("detail-content").innerHTML = `<div class="loading">Loading device…</div>`;
+
+  const [{ data: dev }, { data: hist }] = await Promise.all([
+    sb.from("devices").select("*").eq("device_id", id).single(),
+    sb.from("device_history").select("*").eq("device_id", id).order("ts",{ascending:true}).limit(48),
+  ]);
+  if (!dev) { document.getElementById("detail-content").innerHTML=`<div class="loading">Device not found.</div>`; return; }
+
+  const live = isOnline(dev);
+  const loc  = [dev.location_city, dev.location_country].filter(Boolean).join(", ") || "Unknown";
+
+  function gaugeHtml(label, v) {
+    if (v===null||v===undefined) return "";
+    const c = scoreColor(v);
+    return `<div class="gauge">
+      <div class="gauge-circle" style="border:4px solid ${c};background:${c}14;color:${c}">${v}</div>
+      <div class="gauge-label">${label}</div>
+    </div>`;
+  }
+
+  function infoRow(label, val, color) {
+    return `<div class="info-row">
+      <span>${label}</span>
+      <span style="font-weight:600${color?";color:"+color:""}">${val}</span>
+    </div>`;
+  }
+
+  // Simple sparkline
+  let sparkSVG = "";
+  if (hist && hist.length > 1) {
+    const vals = hist.map(h=>h.m5_score);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const W=500, H=50;
+    const pts = hist.map((h,i) => {
+      const x=(i/(hist.length-1))*W;
+      const y=H-((h.m5_score-mn)/Math.max(mx-mn,1))*H;
+      return `${x},${y}`;
+    }).join(" ");
+    sparkSVG = `<div class="info-card" style="margin-top:16px">
+      <h2>M5 Score History · last ${hist.length} snapshots</h2>
+      <svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+        <polyline fill="none" stroke="var(--green)" stroke-width="2" points="${pts}"/>
+      </svg>
+      <div style="font-size:11px;color:var(--muted);text-align:right;margin-top:4px">
+        ${new Date(hist[0].ts).toLocaleString()} → ${new Date(hist[hist.length-1].ts).toLocaleString()}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById("detail-content").innerHTML = `
+    <div class="detail-header">
+      <div>
+        <a class="back-link" onclick="showPage('obs');return false" href="#">← Back to Observability</a>
+        <h1>${dev.hostname||"—"}</h1>
+        <p style="color:var(--muted);font-size:13px;margin-top:4px">${loc} · ${dev.ssid||"No Wi-Fi"} · Last seen ${relTime(dev.last_seen)}</p>
+      </div>
+      <span class="pill ${live?"pill-online":"pill-offline"}" style="border:1px solid ${live?"var(--green)":"var(--red)"}40">
+        <span class="pill-dot" style="background:${live?"var(--green)":"var(--red)"}"></span>
+        ${live?"Connected":"Offline"}
+      </span>
+    </div>
+
+    <div class="info-card" style="margin-bottom:16px">
+      <div class="gauge-row">
+        ${gaugeHtml("M5 Score",       dev.m5_score)}
+        ${gaugeHtml("Responsiveness", dev.rs_score)}
+        ${gaugeHtml("Reliability",    dev.rl_score)}
+        ${gaugeHtml("Speed",          dev.sp_score)}
+        ${dev.app_health_score !== null ? gaugeHtml("App Health", dev.app_health_score) : ""}
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="info-card">
+        <h2>Network Path</h2>
+        ${infoRow("Gateway RTT", dev.gw_icmp_blocked?"VPN (blocked)":(dev.gw_rtt!==null?dev.gw_rtt+" ms":"—"), dev.gw_icmp_blocked?"var(--amber)":null)}
+        ${infoRow("Internet RTT", dev.inet_rtt!==null?dev.inet_rtt+" ms":"—", dev.inet_rtt>200?"var(--red)":dev.inet_rtt>80?"var(--amber)":null)}
+        ${infoRow("Packet Loss",  dev.loss_pct!==null?dev.loss_pct+"%":"—", dev.loss_pct>1?"var(--red)":"var(--green)")}
+        ${infoRow("VPN Active",   dev.gw_icmp_blocked?"Yes":"No", dev.gw_icmp_blocked?"var(--amber)":"var(--muted)")}
+      </div>
+      <div class="info-card">
+        <h2>Device Info</h2>
+        ${infoRow("Hostname",  dev.hostname||"—")}
+        ${infoRow("Platform",  dev.platform||"—")}
+        ${infoRow("IP",        dev.ip||"—")}
+        ${infoRow("Download",  dev.download_mbps!==null?dev.download_mbps+" Mbps":"Not tested")}
+        ${infoRow("Upload",    dev.upload_mbps!==null?dev.upload_mbps+" Mbps":"Not tested")}
+      </div>
+    </div>
+    ${sparkSVG}
+  `;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
