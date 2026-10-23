@@ -47,11 +47,11 @@ CREATE INDEX IF NOT EXISTS idx_history_device   ON device_history (device_id, ts
 ALTER TABLE devices        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE device_history ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "public_read_devices"   ON devices        FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "device_upsert_devices" ON devices        FOR INSERT WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "device_update_devices" ON devices        FOR UPDATE USING (true);
-CREATE POLICY IF NOT EXISTS "public_read_history"   ON device_history FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "device_insert_history" ON device_history FOR INSERT WITH CHECK (true);
+CREATE POLICY "public_read_devices"   ON devices        FOR SELECT USING (true);
+CREATE POLICY "device_upsert_devices" ON devices        FOR INSERT WITH CHECK (true);
+CREATE POLICY "device_update_devices" ON devices        FOR UPDATE USING (true);
+CREATE POLICY "public_read_history"   ON device_history FOR SELECT USING (true);
+CREATE POLICY "device_insert_history" ON device_history FOR INSERT WITH CHECK (true);
 
 -- Optional: auto-prune history older than 30 days (requires pg_cron extension)
 -- SELECT cron.schedule('prune-history', '0 3 * * *',
