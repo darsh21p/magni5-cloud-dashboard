@@ -1,5 +1,8 @@
--- Run in Supabase → SQL Editor
+-- Run in Supabase → SQL Editor (safe to re-run)
 -- Devices write through this function only; the publishable key gets no direct table access.
+
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS serial_number TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_serial ON devices (serial_number) WHERE serial_number IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION public.push_device(p jsonb, with_history boolean DEFAULT false)
 RETURNS void
@@ -13,11 +16,11 @@ BEGIN
   END IF;
 
   INSERT INTO devices (
-    device_id, org_id, hostname, platform, ip, location_city, location_country, ssid,
+    device_id, serial_number, org_id, hostname, platform, ip, location_city, location_country, ssid,
     m5_score, rs_score, rl_score, sp_score, app_health_score,
     gw_rtt, inet_rtt, loss_pct, download_mbps, upload_mbps, gw_icmp_blocked, status, last_seen
   ) VALUES (
-    p->>'device_id', coalesce(p->>'org_id', 'default'), p->>'hostname', p->>'platform', p->>'ip',
+    p->>'device_id', p->>'serial_number', coalesce(p->>'org_id', 'default'), p->>'hostname', p->>'platform', p->>'ip',
     p->>'location_city', p->>'location_country', p->>'ssid',
     (p->>'m5_score')::smallint, (p->>'rs_score')::smallint, (p->>'rl_score')::smallint,
     (p->>'sp_score')::smallint, (p->>'app_health_score')::smallint,
@@ -26,6 +29,7 @@ BEGIN
     coalesce((p->>'gw_icmp_blocked')::boolean, false), 'online', now()
   )
   ON CONFLICT (device_id) DO UPDATE SET
+    serial_number    = coalesce(excluded.serial_number,    devices.serial_number),
     org_id           = excluded.org_id,
     hostname         = coalesce(excluded.hostname,         devices.hostname),
     platform         = coalesce(excluded.platform,         devices.platform),
@@ -63,5 +67,5 @@ DROP POLICY IF EXISTS "device_upsert_devices" ON devices;
 DROP POLICY IF EXISTS "device_update_devices" ON devices;
 DROP POLICY IF EXISTS "device_insert_history" ON device_history;
 
--- Clean up probe/test rows
-DELETE FROM devices WHERE device_id IN ('probe', 'probe2', 'test001');
+-- Clean up probe/test rows and rows from agents that keyed on the (randomized) Wi-Fi MAC
+DELETE FROM devices WHERE device_id IN ('probe', 'probe2', 'test001') OR serial_number IS NULL;

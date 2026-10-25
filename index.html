@@ -151,7 +151,7 @@
   <h1>Observability</h1>
   <p class="subtitle" id="obs-subtitle">Loading devices…</p>
   <div class="toolbar">
-    <input id="search-input" placeholder="Search hostname, city, SSID…" oninput="renderObs()"/>
+    <input id="search-input" placeholder="Search hostname, serial, city, SSID…" oninput="renderObs()"/>
     <button class="filter-btn active" id="f-all"     onclick="setFilter('all')">All</button>
     <button class="filter-btn"        id="f-online"  onclick="setFilter('online')">Online</button>
     <button class="filter-btn"        id="f-offline" onclick="setFilter('offline')">Offline</button>
@@ -162,6 +162,7 @@
         <tr>
           <th onclick="setSort('m5_score')">Score ↕</th>
           <th onclick="setSort('hostname')">Hostname ↕</th>
+          <th onclick="setSort('serial_number')">Serial ↕</th>
           <th onclick="setSort('rs_score')">RS ↕</th>
           <th onclick="setSort('rl_score')">RL ↕</th>
           <th onclick="setSort('sp_score')">SP ↕</th>
@@ -172,7 +173,7 @@
           <th onclick="setSort('last_seen')">Last seen ↕</th>
         </tr>
       </thead>
-      <tbody id="obs-tbody"><tr><td colspan="10" class="loading">Loading…</td></tr></tbody>
+      <tbody id="obs-tbody"><tr><td colspan="11" class="loading">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -301,6 +302,7 @@ function renderObs() {
     if (filterMode==="online" && !live) return false;
     if (filterMode==="offline" && live) return false;
     return !q || (d.hostname||"").toLowerCase().includes(q)
+              || (d.serial_number||"").toLowerCase().includes(q)
               || (d.location_city||"").toLowerCase().includes(q)
               || (d.ssid||"").toLowerCase().includes(q);
   }).sort((a,b) => {
@@ -314,13 +316,14 @@ function renderObs() {
     `${ALL_DEVICES.length} total · ${online} online${off>0?" · "+off+" offline":""} · refreshes every 30s`;
 
   const tbody = document.getElementById("obs-tbody");
-  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="10" class="loading">No devices match</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td colspan="11" class="loading">No devices match</td></tr>`; return; }
   tbody.innerHTML = rows.map(d => {
     const live = isOnline(d);
     const loc  = [d.location_city, d.location_country].filter(Boolean).join(", ") || "—";
     return `<tr data-id="${d.device_id}" onclick="showDetail('${d.device_id}')">
       <td>${badgeHtml(d.m5_score)}</td>
       <td style="font-weight:600">${d.hostname||"—"}</td>
+      <td style="color:var(--muted);font-family:ui-monospace,Menlo,monospace;font-size:12px">${d.serial_number||"—"}</td>
       <td>${numCell(d.rs_score)}</td>
       <td>${numCell(d.rl_score)}</td>
       <td>${numCell(d.sp_score)}</td>
@@ -497,6 +500,7 @@ async function showDetail(id, silent = false) {
       <div class="info-card">
         <h2>Device Info</h2>
         ${infoRow("Hostname",  dev.hostname||"—")}
+        ${infoRow("Serial",    dev.serial_number||"—")}
         ${infoRow("Platform",  dev.platform||"—")}
         ${infoRow("IP",        dev.ip||"—")}
         ${infoRow("Download",  dev.download_mbps!==null?dev.download_mbps+" Mbps":"Not tested")}
