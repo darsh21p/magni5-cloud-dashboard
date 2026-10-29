@@ -36,6 +36,12 @@
   .win-table th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;cursor:default}
   .win-table td:first-child,.win-table th:first-child{text-align:left}
   .win-table tr.sel td{background:rgba(91,138,245,.08)}
+  .hop-table td{text-align:left;font-variant-numeric:tabular-nums}
+  .hop-table td.num,.hop-table th.num{text-align:right}
+  .hop-host{font-weight:600}
+  .hop-ip{color:var(--muted);font-size:11px;font-family:ui-monospace,Menlo,monospace}
+  .hop-tag{font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(91,138,245,.15);color:var(--accent);margin-left:6px}
+  .hop-bar{height:6px;border-radius:3px;background:var(--accent);min-width:2px}
 
   /* Pages */
   .page{display:none;padding:24px;min-height:calc(100vh - 52px)}
@@ -502,6 +508,58 @@ async function showDetail(id, silent = false) {
       </div>
     </div>`;
 
+  const pt = dev.path_trace;
+  let traceCard = `<div class="info-card" style="margin-bottom:16px">
+      <h2>Hop-by-hop path</h2>
+      <div style="font-size:13px;color:var(--muted)">No traceroute yet — it appears once the device runs the latest app.</div>
+    </div>`;
+  if (pt && Array.isArray(pt.hops) && pt.hops.length) {
+    const maxRtt = Math.max(1, ...pt.hops.map(h => Number(h.rtt) || 0));
+    let prev = null;
+    const rows = pt.hops.map(h => {
+      const rtt = h.rtt == null ? null : Number(h.rtt);
+      const delta = rtt != null && prev != null ? rtt - prev : null;
+      if (rtt != null) prev = rtt;
+      const loss = Number(h.loss) || 0;
+      if (!h.ip) {
+        return `<tr><td>${Number(h.ttl)}</td><td colspan="5" style="color:var(--dim)">* no reply</td><td></td></tr>`;
+      }
+      const name = h.host ? `<div class="hop-host">${esc(h.host)}</div><div class="hop-ip">${esc(h.ip)}</div>`
+                          : `<div class="hop-host hop-ip" style="font-size:12px;color:var(--text)">${esc(h.ip)}</div>`;
+      const tag = h.private ? `<span class="hop-tag">local</span>` : "";
+      const alt = Array.isArray(h.alt_ips) && h.alt_ips.length
+        ? `<div class="hop-ip">also ${h.alt_ips.map(esc).join(", ")}</div>` : "";
+      const dColor = delta != null && delta > 30 ? "var(--amber)" : "var(--muted)";
+      const lColor = loss >= 100 ? "var(--red)" : loss > 0 ? "var(--amber)" : "var(--green)";
+      return `<tr>
+        <td>${Number(h.ttl)}</td>
+        <td>${name}${alt}</td>
+        <td>${tag}</td>
+        <td class="num">${rtt != null ? rtt.toFixed(1) + " ms" : "—"}</td>
+        <td class="num" style="color:${dColor}">${delta != null ? (delta >= 0 ? "+" : "") + delta.toFixed(1) : ""}</td>
+        <td class="num" style="color:${lColor}">${loss}%</td>
+        <td style="width:22%"><div class="hop-bar" style="width:${rtt != null ? Math.round(rtt / maxRtt * 100) : 0}%"></div></td>
+      </tr>`;
+    }).join("");
+    traceCard = `<div class="info-card" style="margin-bottom:16px">
+      <h2>Hop-by-hop path · Paris traceroute</h2>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        To <b style="color:var(--text)">${esc(pt.target)}</b>${pt.dst && pt.dst !== pt.target ? ` (${esc(pt.dst)})` : ""}
+        · ${pt.hops.filter(h => h.ip).length} hops
+        · ${pt.reached ? `<span style="color:var(--green)">destination reached</span>` : `<span style="color:var(--amber)">destination not reached</span>`}
+        · traced ${pt.ts ? relTime(pt.ts) : "—"}
+      </div>
+      <table class="win-table hop-table">
+        <thead><tr><th>#</th><th>Router</th><th></th><th class="num">Avg RTT</th><th class="num">Δ</th><th class="num">Loss</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">
+        ${Number(pt.probes) || 3} probes per hop with a constant flow ID, so every probe follows the same load-balanced path.
+        Loss at a middle hop that doesn't carry on to later hops is usually the router rate-limiting replies, not real loss.
+      </div>
+    </div>`;
+  }
+
   function gaugeHtml(label, v) {
     if (v===null||v===undefined) return "";
     const c = scoreColor(v);
@@ -586,6 +644,7 @@ async function showDetail(id, silent = false) {
         ${infoRow("Upload",    dev.upload_mbps!==null?dev.upload_mbps+" Mbps":"Not tested")}
       </div>
     </div>
+    ${traceCard}
     ${sparkSVG}
   `;
 }
