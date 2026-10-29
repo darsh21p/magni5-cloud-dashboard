@@ -23,6 +23,19 @@
   .nav-btn:hover,.nav-btn.active{color:var(--text)}
   .nav-btn.active{border-bottom-color:var(--accent);color:var(--text)}
   .nav-right{margin-left:auto;font-size:12px;color:var(--muted)}
+  /* Score-window tabs — same look as the app's Now / 5 mins / 1 hour tabs */
+  .win-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .win-tabs-lbl{font-size:12px;color:var(--muted);margin-right:4px}
+  .tb{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:.14s}
+  .tb.active{background:#2dd4bf;border-color:#2dd4bf;color:#000;font-weight:800}
+  .tb:hover:not(.active){background:var(--card);color:var(--text)}
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+  .page-head .subtitle{margin-bottom:0}
+  .win-table{width:100%;border-collapse:collapse;font-size:13px}
+  .win-table th,.win-table td{padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)}
+  .win-table th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;cursor:default}
+  .win-table td:first-child,.win-table th:first-child{text-align:left}
+  .win-table tr.sel td{background:rgba(91,138,245,.08)}
 
   /* Pages */
   .page{display:none;padding:24px;min-height:calc(100vh - 52px)}
@@ -148,8 +161,13 @@
 
 <!-- ── PAGE 1: OBSERVABILITY ────────────────────────────────────────────── -->
 <div id="page-obs" class="page active">
-  <h1>Observability</h1>
-  <p class="subtitle" id="obs-subtitle">Loading devices…</p>
+  <div class="page-head">
+    <div>
+      <h1>Observability</h1>
+      <p class="subtitle" id="obs-subtitle">Loading devices…</p>
+    </div>
+    <div class="win-tabs" data-win-tabs></div>
+  </div>
   <div class="toolbar">
     <input id="search-input" placeholder="Search hostname, serial, city, SSID…" oninput="renderObs()"/>
     <button class="filter-btn active" id="f-all"     onclick="setFilter('all')">All</button>
@@ -180,8 +198,13 @@
 
 <!-- ── PAGE 2: DASHBOARD ────────────────────────────────────────────────── -->
 <div id="page-dash" class="page">
-  <h1>Dashboard</h1>
-  <p class="subtitle" id="dash-subtitle">Loading…</p>
+  <div class="page-head">
+    <div>
+      <h1>Dashboard</h1>
+      <p class="subtitle" id="dash-subtitle">Loading…</p>
+    </div>
+    <div class="win-tabs" data-win-tabs></div>
+  </div>
   <div class="summary-grid" id="summary-cards"></div>
   <div class="two-col">
     <div>
@@ -222,13 +245,41 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ── State ─────────────────────────────────────────────────────────────────────
 let ALL_DEVICES = [];
 let sortKey = "m5_score", sortAsc = false, filterMode = "all";
+let WIN = "now";
+const WIN_LABEL = { now: "Now", "1m": "1 min avg", "5m": "5 min avg", "1h": "1 hr avg" };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// Device-supplied strings (hostname, SSID, city…) must never be inserted as raw HTML
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+// Score for the selected window; key is "m5" | "rs" | "rl" | "sp"
+function sc(d, key, win = WIN) {
+  const v = win === "now" ? d[key + "_score"] : d.score_windows?.[win]?.[key];
+  return Number.isFinite(Number(v)) && v !== null ? Number(v) : null;
+}
+const SCORE_COLS = { m5_score: "m5", rs_score: "rs", rl_score: "rl", sp_score: "sp" };
+function winTabsHtml() {
+  return `<span class="win-tabs-lbl">Score window</span>` +
+    [["now","Now"],["1m","1 min"],["5m","5 min"],["1h","1 hr"]].map(([w, label]) =>
+      `<button class="tb${w === WIN ? " active" : ""}" onclick="setWindow('${w}')">${label}</button>`).join("");
+}
+function renderWinTabs() {
+  document.querySelectorAll("[data-win-tabs]").forEach(el => el.innerHTML = winTabsHtml());
+}
+function setWindow(w) {
+  WIN = w;
+  renderWinTabs();
+  renderObs();
+  renderDash();
+  if (_currentDetail) showDetail(_currentDetail, true);
+}
 function scoreColor(v) {
   if (v === null || v === undefined) return "var(--dim)";
   return v >= 80 ? "var(--green)" : v >= 60 ? "var(--amber)" : "var(--red)";
 }
 function scoreLabel(v) {
+  if (v === null || v === undefined) return "No data";
   if (v >= 90) return "Excellent"; if (v >= 80) return "Great";
   if (v >= 70) return "Good"; if (v >= 60) return "Fair";
   if (v >= 50) return "Poor"; return "Bad";
@@ -244,7 +295,8 @@ function relTime(iso) {
   return Math.floor(s/86400)+"d ago";
 }
 function avg(arr) {
-  return arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+  const v = arr.filter(x => x !== null && x !== undefined);
+  return v.length ? Math.round(v.reduce((a,b)=>a+b,0)/v.length) : null;
 }
 function numCell(v, bold=false) {
   if (v===null||v===undefined) return `<span style="color:var(--dim)">—</span>`;
@@ -258,8 +310,8 @@ function barRow(label, v) {
   const c = scoreColor(v);
   return `<div class="bar-row">
     <span class="bar-lbl">${label}</span>
-    <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${v}%;background:${c}"></div></div>
-    <span class="bar-num" style="color:${c}">${v}</span>
+    <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${v ?? 0}%;background:${c}"></div></div>
+    <span class="bar-num" style="color:${c}">${v ?? "—"}</span>
   </div>`;
 }
 
@@ -306,33 +358,35 @@ function renderObs() {
               || (d.location_city||"").toLowerCase().includes(q)
               || (d.ssid||"").toLowerCase().includes(q);
   }).sort((a,b) => {
-    const va = a[sortKey]??-1, vb = b[sortKey]??-1;
+    const col = SCORE_COLS[sortKey];
+    const va = (col ? sc(a, col) : a[sortKey]) ?? -1, vb = (col ? sc(b, col) : b[sortKey]) ?? -1;
     return sortAsc ? (va<vb?-1:va>vb?1:0) : (va<vb?1:va>vb?-1:0);
   });
 
   const online = ALL_DEVICES.filter(isOnline).length;
   const off    = ALL_DEVICES.length - online;
   document.getElementById("obs-subtitle").textContent =
-    `${ALL_DEVICES.length} total · ${online} online${off>0?" · "+off+" offline":""} · refreshes every 30s`;
+    `${ALL_DEVICES.length} total · ${online} online${off>0?" · "+off+" offline":""} · scores: ${WIN_LABEL[WIN]} · live`;
 
   const tbody = document.getElementById("obs-tbody");
   if (!rows.length) { tbody.innerHTML=`<tr><td colspan="11" class="loading">No devices match</td></tr>`; return; }
   tbody.innerHTML = rows.map(d => {
     const live = isOnline(d);
-    const loc  = [d.location_city, d.location_country].filter(Boolean).join(", ") || "—";
-    return `<tr data-id="${d.device_id}" onclick="showDetail('${d.device_id}')">
-      <td>${badgeHtml(d.m5_score)}</td>
-      <td style="font-weight:600">${d.hostname||"—"}</td>
-      <td style="color:var(--muted);font-family:ui-monospace,Menlo,monospace;font-size:12px">${d.serial_number||"—"}</td>
-      <td>${numCell(d.rs_score)}</td>
-      <td>${numCell(d.rl_score)}</td>
-      <td>${numCell(d.sp_score)}</td>
+    const loc  = esc([d.location_city, d.location_country].filter(Boolean).join(", ") || "—");
+    const id   = esc(d.device_id);
+    return `<tr data-id="${id}" onclick="showDetail(this.dataset.id)">
+      <td>${badgeHtml(sc(d,"m5"))}</td>
+      <td style="font-weight:600">${esc(d.hostname||"—")}</td>
+      <td style="color:var(--muted);font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(d.serial_number||"—")}</td>
+      <td>${numCell(sc(d,"rs"))}</td>
+      <td>${numCell(sc(d,"rl"))}</td>
+      <td>${numCell(sc(d,"sp"))}</td>
       <td>${numCell(d.app_health_score)}</td>
       <td><span class="pill ${live?"pill-online":"pill-offline"}">
         <span class="pill-dot" style="background:${live?"var(--green)":"var(--red)"}"></span>
         ${live?"Connected":"Offline"}
       </span></td>
-      <td style="color:var(--muted)">${d.ssid||"—"}</td>
+      <td style="color:var(--muted)">${esc(d.ssid||"—")}</td>
       <td style="color:var(--muted)">${loc}</td>
       <td style="color:var(--muted);white-space:nowrap">${relTime(d.last_seen)}</td>
     </tr>`;
@@ -344,13 +398,13 @@ function renderDash() {
   const D = ALL_DEVICES;
   if (!D.length) return;
   const online  = D.filter(isOnline).length;
-  const allM5   = avg(D.map(d=>d.m5_score));
-  const allRS   = avg(D.map(d=>d.rs_score));
-  const allRL   = avg(D.map(d=>d.rl_score));
-  const allSP   = avg(D.map(d=>d.sp_score));
+  const allM5   = avg(D.map(d=>sc(d,"m5")));
+  const allRS   = avg(D.map(d=>sc(d,"rs")));
+  const allRL   = avg(D.map(d=>sc(d,"rl")));
+  const allSP   = avg(D.map(d=>sc(d,"sp")));
 
   document.getElementById("dash-subtitle").textContent =
-    `${D.length} devices · ${online} online · ${D.length-online} offline`;
+    `${D.length} devices · ${online} online · ${D.length-online} offline · scores: ${WIN_LABEL[WIN]}`;
 
   document.getElementById("summary-cards").innerHTML = [
     ["M5",  "Average M5 Score",      allM5],
@@ -362,9 +416,9 @@ function renderDash() {
       <div class="sum-label">${label}</div>
       <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
         <span style="font-size:13px;color:var(--muted)">${icon}</span>
-        <span class="sum-val" style="color:${scoreColor(val)}">${val}</span>
+        <span class="sum-val" style="color:${scoreColor(val)}">${val ?? "—"}</span>
       </div>
-      <div class="sum-sub">${scoreLabel(val)} · Average Score</div>
+      <div class="sum-sub">${scoreLabel(val)} · ${WIN_LABEL[WIN]}</div>
     </div>`).join("");
 
   // By city
@@ -376,13 +430,13 @@ function renderDash() {
   }
   const locs = Object.entries(byCity).map(([city,{devs,country}]) => ({
     city, country, count:devs.length, online:devs.filter(isOnline).length,
-    m5:avg(devs.map(d=>d.m5_score)), rs:avg(devs.map(d=>d.rs_score)),
-    rl:avg(devs.map(d=>d.rl_score)), sp:avg(devs.map(d=>d.sp_score)),
-  })).sort((a,b)=>b.m5-a.m5);
+    m5:avg(devs.map(d=>sc(d,"m5"))), rs:avg(devs.map(d=>sc(d,"rs"))),
+    rl:avg(devs.map(d=>sc(d,"rl"))), sp:avg(devs.map(d=>sc(d,"sp"))),
+  })).sort((a,b)=>(b.m5??-1)-(a.m5??-1));
 
   document.getElementById("loc-tbody").innerHTML = locs.map((l,i) => `
     <tr>
-      <td><strong>${l.city}</strong> <span style="color:var(--muted);font-size:11px">${l.country}</span></td>
+      <td><strong>${esc(l.city)}</strong> <span style="color:var(--muted);font-size:11px">${esc(l.country)}</span></td>
       <td style="text-align:center;color:var(--muted)">${l.count}</td>
       <td style="text-align:center;color:var(--green)">${l.online}</td>
       <td style="text-align:center">${numCell(l.m5,true)}</td>
@@ -392,22 +446,22 @@ function renderDash() {
     </tr>`).join("");
 
   // Worst 5
-  const worst5 = [...D].sort((a,b)=>a.m5_score-b.m5_score).slice(0,5);
+  const worst5 = D.filter(d => sc(d,"m5") !== null).sort((a,b)=>sc(a,"m5")-sc(b,"m5")).slice(0,5);
   document.getElementById("worst-list").innerHTML = worst5.map(d => `
-    <a class="worst-row" onclick="showDetail('${d.device_id}');return false" href="#">
+    <a class="worst-row" data-id="${esc(d.device_id)}" onclick="showDetail(this.dataset.id);return false" href="#">
       <div class="worst-inner">
         <div>
-          <div class="worst-name">${d.hostname||"—"}</div>
-          <div class="worst-sub">${d.location_city||"Unknown"} · ${d.ssid||"—"}</div>
+          <div class="worst-name">${esc(d.hostname||"—")}</div>
+          <div class="worst-sub">${esc(d.location_city||"Unknown")} · ${esc(d.ssid||"—")}</div>
         </div>
         <div class="worst-score">
-          <div class="worst-m5" style="color:${scoreColor(d.m5_score)}">${d.m5_score}</div>
-          <div class="worst-lbl">M5</div>
+          <div class="worst-m5" style="color:${scoreColor(sc(d,"m5"))}">${sc(d,"m5")}</div>
+          <div class="worst-lbl">M5 · ${WIN_LABEL[WIN]}</div>
         </div>
       </div>
-      ${barRow("RS",d.rs_score)}
-      ${barRow("RL",d.rl_score)}
-      ${barRow("SP",d.sp_score)}
+      ${barRow("RS",sc(d,"rs"))}
+      ${barRow("RL",sc(d,"rl"))}
+      ${barRow("SP",sc(d,"sp"))}
     </a>`).join("");
 }
 
@@ -426,7 +480,27 @@ async function showDetail(id, silent = false) {
   if (!dev) { document.getElementById("detail-content").innerHTML=`<div class="loading">Device not found.</div>`; return; }
 
   const live = isOnline(dev);
-  const loc  = [dev.location_city, dev.location_country].filter(Boolean).join(", ") || "Unknown";
+  const loc  = esc([dev.location_city, dev.location_country].filter(Boolean).join(", ") || "Unknown");
+
+  // All four scores across every window, like the app's Now / 5 mins / 1 hour tabs
+  const winRows = ["now", "1m", "5m", "1h"].map(w => {
+    const n = w === "now" ? null : dev.score_windows?.[w]?.n;
+    return `<tr class="${w === WIN ? "sel" : ""}">
+      <td>${WIN_LABEL[w]}${n ? ` <span style="color:var(--dim);font-size:11px">· ${Number(n)} readings</span>` : ""}</td>
+      <td>${numCell(sc(dev,"m5",w), true)}</td><td>${numCell(sc(dev,"rs",w))}</td>
+      <td>${numCell(sc(dev,"rl",w))}</td><td>${numCell(sc(dev,"sp",w))}</td>
+    </tr>`;
+  }).join("");
+  const windowsCard = `<div class="info-card" style="margin-bottom:16px">
+      <h2>Scores by time window</h2>
+      <table class="win-table">
+        <thead><tr><th>Window</th><th>M5</th><th>RS</th><th>RL</th><th>SP</th></tr></thead>
+        <tbody>${winRows}</tbody>
+      </table>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">
+        Computed on the device at its last check-in (${relTime(dev.last_seen)})${dev.score_windows ? "" : " · averages appear once the device runs the latest app"}
+      </div>
+    </div>`;
 
   function gaugeHtml(label, v) {
     if (v===null||v===undefined) return "";
@@ -470,24 +544,29 @@ async function showDetail(id, silent = false) {
     <div class="detail-header">
       <div>
         <a class="back-link" onclick="showPage('obs');return false" href="#">← Back to Observability</a>
-        <h1>${dev.hostname||"—"}</h1>
-        <p style="color:var(--muted);font-size:13px;margin-top:4px">${loc} · ${dev.ssid||"No Wi-Fi"} · Last seen ${relTime(dev.last_seen)}</p>
+        <h1>${esc(dev.hostname||"—")}</h1>
+        <p style="color:var(--muted);font-size:13px;margin-top:4px">${loc} · ${esc(dev.ssid||"No Wi-Fi")} · Last seen ${relTime(dev.last_seen)}</p>
       </div>
-      <span class="pill ${live?"pill-online":"pill-offline"}" style="border:1px solid ${live?"var(--green)":"var(--red)"}40">
-        <span class="pill-dot" style="background:${live?"var(--green)":"var(--red)"}"></span>
-        ${live?"Connected":"Offline"}
-      </span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+        <span class="pill ${live?"pill-online":"pill-offline"}" style="border:1px solid ${live?"var(--green)":"var(--red)"}40">
+          <span class="pill-dot" style="background:${live?"var(--green)":"var(--red)"}"></span>
+          ${live?"Connected":"Offline"}
+        </span>
+        <div class="win-tabs" data-win-tabs>${winTabsHtml()}</div>
+      </div>
     </div>
 
     <div class="info-card" style="margin-bottom:16px">
+      <h2>${WIN_LABEL[WIN]}</h2>
       <div class="gauge-row">
-        ${gaugeHtml("M5 Score",       dev.m5_score)}
-        ${gaugeHtml("Responsiveness", dev.rs_score)}
-        ${gaugeHtml("Reliability",    dev.rl_score)}
-        ${gaugeHtml("Speed",          dev.sp_score)}
+        ${gaugeHtml("M5 Score",       sc(dev,"m5"))}
+        ${gaugeHtml("Responsiveness", sc(dev,"rs"))}
+        ${gaugeHtml("Reliability",    sc(dev,"rl"))}
+        ${gaugeHtml("Speed",          sc(dev,"sp"))}
         ${dev.app_health_score !== null ? gaugeHtml("App Health", dev.app_health_score) : ""}
       </div>
     </div>
+    ${windowsCard}
 
     <div class="detail-grid">
       <div class="info-card">
@@ -499,10 +578,10 @@ async function showDetail(id, silent = false) {
       </div>
       <div class="info-card">
         <h2>Device Info</h2>
-        ${infoRow("Hostname",  dev.hostname||"—")}
-        ${infoRow("Serial",    dev.serial_number||"—")}
-        ${infoRow("Platform",  dev.platform||"—")}
-        ${infoRow("IP",        dev.ip||"—")}
+        ${infoRow("Hostname",  esc(dev.hostname||"—"))}
+        ${infoRow("Serial",    esc(dev.serial_number||"—"))}
+        ${infoRow("Platform",  esc(dev.platform||"—"))}
+        ${infoRow("IP",        esc(dev.ip||"—"))}
         ${infoRow("Download",  dev.download_mbps!==null?dev.download_mbps+" Mbps":"Not tested")}
         ${infoRow("Upload",    dev.upload_mbps!==null?dev.upload_mbps+" Mbps":"Not tested")}
       </div>
@@ -521,7 +600,7 @@ function applyChange(row) {
   document.getElementById("nav-count").textContent = `${ALL_DEVICES.length} devices · ${online} online`;
   renderObs();
   renderDash();
-  const tr = document.querySelector(`tr[data-id="${row.device_id}"]`);
+  const tr = document.querySelector(`tr[data-id="${CSS.escape(row.device_id)}"]`);
   if (tr) tr.classList.add("flash");
   if (_currentDetail === row.device_id) showDetail(row.device_id, true);
 }
@@ -555,6 +634,7 @@ function enterApp(session) {
   document.getElementById("login-screen").style.display = "none";
   document.getElementById("app").style.display = "block";
   document.getElementById("nav-user").textContent = session.user.email;
+  renderWinTabs();
   loadAll();
   startRealtime();
   _timers.push(setInterval(loadAll, 60000));                     // safety resync

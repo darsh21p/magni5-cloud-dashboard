@@ -2,6 +2,8 @@
 -- Devices write through this function only; the publishable key gets no direct table access.
 
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS serial_number TEXT;
+-- {"1m": {"m5":..,"rs":..,"rl":..,"sp":..,"n":..}, "5m": {...}, "1h": {...}} computed on the device
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS score_windows JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_serial ON devices (serial_number) WHERE serial_number IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION public.push_device(p jsonb, with_history boolean DEFAULT false)
@@ -17,13 +19,13 @@ BEGIN
 
   INSERT INTO devices (
     device_id, serial_number, org_id, hostname, platform, ip, location_city, location_country, ssid,
-    m5_score, rs_score, rl_score, sp_score, app_health_score,
+    m5_score, rs_score, rl_score, sp_score, score_windows, app_health_score,
     gw_rtt, inet_rtt, loss_pct, download_mbps, upload_mbps, gw_icmp_blocked, status, last_seen
   ) VALUES (
     p->>'device_id', p->>'serial_number', coalesce(p->>'org_id', 'default'), p->>'hostname', p->>'platform', p->>'ip',
     p->>'location_city', p->>'location_country', p->>'ssid',
     (p->>'m5_score')::smallint, (p->>'rs_score')::smallint, (p->>'rl_score')::smallint,
-    (p->>'sp_score')::smallint, (p->>'app_health_score')::smallint,
+    (p->>'sp_score')::smallint, p->'score_windows', (p->>'app_health_score')::smallint,
     (p->>'gw_rtt')::real, (p->>'inet_rtt')::real, (p->>'loss_pct')::real,
     (p->>'download_mbps')::real, (p->>'upload_mbps')::real,
     coalesce((p->>'gw_icmp_blocked')::boolean, false), 'online', now()
@@ -41,6 +43,7 @@ BEGIN
     rs_score         = coalesce(excluded.rs_score,         devices.rs_score),
     rl_score         = coalesce(excluded.rl_score,         devices.rl_score),
     sp_score         = coalesce(excluded.sp_score,         devices.sp_score),
+    score_windows    = coalesce(excluded.score_windows,    devices.score_windows),
     app_health_score = coalesce(excluded.app_health_score, devices.app_health_score),
     gw_rtt           = coalesce(excluded.gw_rtt,           devices.gw_rtt),
     inet_rtt         = coalesce(excluded.inet_rtt,         devices.inet_rtt),
